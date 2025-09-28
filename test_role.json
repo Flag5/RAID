@@ -1,0 +1,31 @@
+{
+  "role_id": "web-pentest",
+  "name": "Web Application Penetration Test",
+  "description": "Comprehensive web application security assessment",
+  "categories": ["web"],
+  "tools": [
+    {
+      "tool_id": "http-fetcher",
+      "name": "HTTP Fetcher",
+      "action": "fetch",
+      "required": true,
+      "parameters": {
+        "url": "https://example.com",
+        "method": "GET",
+        "timeout": 30
+      }
+    }
+  ],
+  "workflow": [
+    {
+      "step": "reconnaissance",
+      "tools": ["http-fetcher"],
+      "description": "Initial reconnaissance and information gathering"
+    }
+  ],
+  "requirements": {
+    "network_access": true,
+    "elevated_privileges": false,
+    "approval_required": false
+  }
+}

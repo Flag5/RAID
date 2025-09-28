@@ -1,0 +1,36 @@
+{
+  "auth_id": "demo-auth-001",
+  "issued_by": "RAID Demo System",
+  "issued_at": "2025-09-28T20:54:36.142734",
+  "expires_at": "2025-09-29T20:54:36.142758",
+  "allow_destructive": false,
+  "allow_device_passthrough": false,
+  "allowed_roles": [
+    "web-pentest",
+    "network-scan"
+  ],
+  "scope": {
+    "target_cidrs": [
+      "203.0.113.0/24",
+      "192.168.1.0/24"
+    ],
+    "target_domains": [
+      "example.com",
+      "test.example.com"
+    ],
+    "excluded_cidrs": [],
+    "max_targets": 100
+  },
+  "limits": {
+    "max_duration_hours": 8,
+    "max_tools_concurrent": 5,
+    "rate_limit_per_minute": 100,
+    "max_evidence_size_mb": 500
+  },
+  "requires_human_approval": [
+    "destructive",
+    "credential_access"
+  ],
+  "purpose": "Security assessment demonstration",
+  "contact_email": "demo@raid-framework.local"
+}

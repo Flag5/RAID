@@ -1,0 +1,58 @@
+# RAID Security Assessment Framework Dependencies
+
+# Core Framework
+click>=8.1.0                 # CLI interface
+pyyaml>=6.0                  # Configuration parsing
+pydantic>=2.0.0              # Data validation and settings
+
+# MCP Server Framework
+fastmcp>=2.0.0               # FastMCP framework for MCP server
+fastapi>=0.104.0             # Web framework for APIs
+uvicorn>=0.24.0              # ASGI server
+
+# Streaming and WebSockets
+websockets>=12.0             # WebSocket support
+sse-starlette>=1.6.0         # Server-Sent Events
+
+# HTTP and Networking
+requests>=2.31.0             # HTTP client for tool runners
+aiohttp>=3.9.0               # Async HTTP client
+
+# Security and Cryptography
+cryptography>=41.0.0         # Ed25519 signing and encryption
+PyJWT>=2.8.0                 # JWT token handling
+
+# Testing Framework
+pytest>=7.4.0               # Testing framework
+pytest-asyncio>=0.21.0      # Async testing support
+pytest-mock>=3.12.0         # Mock utilities
+requests-mock>=1.11.0       # HTTP request mocking
+
+# Code Quality
+ruff>=0.1.0                  # Fast Python linter and formatter
+black>=23.0.0                # Code formatter
+mypy>=1.7.0                  # Type checking
+
+# Container Integration
+docker>=6.1.0               # Docker client for container management
+
+# Terminal UI
+rich>=13.7.0                 # Rich terminal UI
+textual>=0.44.0              # Terminal UI framework
+
+# File and Data Processing
+pathlib2>=2.3.7             # Enhanced path handling
+jsonschema>=4.19.0          # JSON schema validation
+
+# Async and Concurrency
+asyncio>=3.4.3              # Async programming (built-in)
+
+# Security Tools Integration (Optional)
+playwright>=1.40.0          # Browser automation for web security testing
+
+# Development and Debugging
+ipython>=8.17.0             # Enhanced Python shell
+debugpy>=1.8.0              # Debug adapter protocol
+
+# Production Monitoring (Optional)
+structlog>=23.2.0           # Structured logging

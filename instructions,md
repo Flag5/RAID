@@ -1,0 +1,205 @@
+# PROMPT FOR CODE AGENT — Implement RAID capability-class-delta prototype (updated)
+
+Goal
+Build a minimal, well structured prototype of RAID: an agentic, containerised framework that uses an MCP server plus tool-runners to perform aythorised, auditable security assessments. The prototype must be simple, readable, and testable. It must demonstrate the delta capability: planner -> tool discovery -> tool synthesis -> tool execution -> evidence collection -> signed artifact. Add interactive, human-in-the-loop controls and runtime streaming so an operator can observe and steer a running job. Ensure device passthrough support for hardware tools (example: USB Wi-Fi adapter) while keeping the host protected.
+
+High level new features to include
+1. MCP server runs as a service inside the container environment and acts as the capability hub and registry.
+2. Real-time streaming UI:
+   - Terminal UI that streams planner output, tool logs and NDJSON append events. Like claude code style.
+
+   - WebSocket or SSE for streaming events from controller to UI.
+3. Human-in-the-loop flows:
+   - Controller can pause execution at checkpoints and request an approval or free-text input from operator.
+   - CLI accept approvals and ad-hoc instructions which are inserted into ongoing plan and re-opened for planning.
+4. Device passthrough support:
+   - Provide clear support and examples for passing a USB device (Wi-Fi adapter) into the container via docker compose / docker run --device syntax. Do not require the container to run as host-root. Document safe host steps to enable device passthrough and put strong warnings in README.
+5. Streaming logs, persistent artifacts:
+   - Each run always generates a results directory with NDJSON plan + sequential records, evidence files, run manifest and signatures.
+   - Streaming data is appended to NDJSON as events occur, and UI shows live updates.
+6. Tool synthesis remains: create small tools on demand, validate offline in sandbox, then register.
+7. CLI remains simple: raid run, raid dry-run, raid pause, raid resume, raid approve, raid replay, raid verify.
+
+Safety rules (must)
+
+2. Destructive or  actions that require explicit authorization must be human approved to allow_destructive true in auth and a manual confirmation step during the run.
+3. Synthesised tools must pass static checks and unit tests in an offline sandbox before being allowed to touch live targets.
+4. Device passthrough is explicit and manual: operator must attach device and pass the explicit docker device path to the container. Document host prerequisites and permissions. Warn operator about host-level privileges.
+5. Network egress from tool containers must be restricted to target CIDRs in auth. Controller enforces network isolation.
+6. Always include kill switch and heartbeat. If heartbeat lost, controller kills containers and snapshots evidence.
+7. Never allow generated tools to fetch remote code at runtime. All code used in a run must be present locally or synthesized and tested locally.
+
+Top-level acceptance criteria (updated)
+1. Repo scaffold builds with Makefile targets: build, up, test, lint, clean.
+2. CLI `raid` supports dry-run and run modes. Dry-run produces signed NDJSON plan file. Full run produces NDJSON and executes plan while streaming events.
+3. MCP server stub with endpoints for tool discovery, synthesis request, run-tool proxy and streaming events.
+4. One tool-runner: http-fetcher that implements POST /run, validates inputs and writes evidence.
+5. Interactive UI:
+   - Terminal streaming UI that shows live plan, LLM messages, tool outputs, approvals requested.
+   - Minimal web UI with WebSocket/SSE to stream events and a chat box to send instructions or approvals.
+6. Device passthrough example and docs: show how to pass USB Wi-Fi adapter into container. Emphasize safe host operations and do not require privileged host access for normal tool operations once device passed.
+7. Synthesis pipeline for missing tools that builds Python tool-runner images, runs linters and unit tests in an offline sandbox, and only then registers the tool.
+8. NDJSON run artifact produced during run with incremental appends, plus final signed manifest.
+9. Unit tests using pytest for role validation, controller dry-run, tool-runner API, and a test for pause/approve flow using mock UI signals.
+10. Minimal LLM adapter that uses a MockLLM in tests and can be swapped for real providers.
+
+Repository scaffold to create or update (files)
+Create or update the files listed below. Keep code minimal, well documented, synchronous where possible, typed, and with clear TODOs for production hardening.
+
+- README.md (include device passthrough docs, streaming UI quickstart, human-in-the-loop usage)
+- Makefile (build, up, dry-run, run, pause, resume, approve, test, lint, clean)
+- requirements.txt (click, pyyaml, flask, fastapi, uvicorn, websockets or sse-starlette, requests, pytest, cryptography, pydantic, ruff)
+- roles/schema.yaml
+- roles/web-pentest.yaml
+- auth/sample_signed_auth.json
+- controller/main.py
+- controller/cli.py
+- controller/role_loader.py
+- controller/planner.py
+- controller/registry.py
+- controller/synthesizer.py
+- controller/signing.py
+- controller/executor.py (new) — handles orchestration, streaming, pause/resume, approvals
+- mcp/server.py
+- mcp/registry_store.py (simple in-memory registry with persistence)
+- tool-runners/http_fetcher/app.py
+- ui/terminal_ui.py (simple TUI using text streaming)
+- ui/web_ui.py (FastAPI with WebSocket or SSE endpoints and minimal static HTML client)
+- docker/docker-compose.dev.yaml (add device passthrough example lines commented)
+- specs/ndjson.md (update to include streaming append semantics and approval events)
+- tests/test_role_validation.py
+- tests/test_controller_dryrun.py
+- tests/test_tool_runner_api.py
+- tests/test_pause_resume_approve.py (simulate pause and approve via controller API)
+- scripts/generate_ed25519_key.py
+
+Implementation guidance by component
+
+Controller and executor
+- controller/main.py: CLI entry point. Use click. Commands: dry-run, run, pause, resume, approve, replay, verify.
+- controller/cli.py: parse args and call controller functions.
+- controller/executor.py:
+  - Responsible for the run loop.
+  - Steps: validate auth, load role, generate plan via planner, write initial NDJSON plan record, stream plan to UI, iterate phases.
+  - For each phase: validate allowed tools, find or synthesize tool using registry, for each tool call mcp/server to start tool-runner, stream tool logs to UI and append tool-output NDJSON records as they arrive.
+  - Pause points: before destructive or when planner requests human input. Expose an API to accept approval or free-text input that is inserted into the planner context and triggers replan or continuation.
+  - On finish: build run manifest, sign both manifest and final NDJSON, compress artifact.
+
+Streaming and UI
+- Use WebSocket for real-time streaming from controller to web UI. Implement message types: event.plan, event.phase_start, event.tool_log, event.tool_output, event.approval_required, event.approval_result, event.final_report.
+- Terminal UI: simple stream reader that subscribes to controller events (either via a local Unix socket or by tailing NDJSON file). Provide key bindings: p pause, r resume, a approve, q quit.
+- Web UI: minimal static HTML + JS client that connects over WebSocket and shows log lines and simple input box for approvals and free-text.
+
+MCP server and registry
+- mcp/server.py: exposes /tools, /synthesize, /run-tool, /events (for websocket clients if needed). For run-tool, in dev just proxy to local tool-runner container URL.
+- mcp/registry_store.py: in-memory registry with persistence to disk (JSON file) so synthesized tools survive restarts.
+
+Tool synthesis
+- controller/synthesizer.py:
+  - Given a requested action (example: header-check), produce a small Python Flask tool-runner scaffold that implements POST /run for that action.
+  - Write Dockerfile for the tool-runner image.
+  - Run static checks (ruff/flake8) and run unit tests in an offline sandbox container (docker run with network disabled).
+  - If sandbox tests pass, build the image and register metadata in registry.
+  - In prototype, the synthesizer can fake the build step in tests but must perform static checks and sandbox test runs.
+
+Tool-runner: http-fetcher
+- tool-runners/http_fetcher/app.py:
+  - POST /run accepts action=fetch and params.url, run_context with authorized boolean and target scope.
+  - Validate URL against run_context.scope, enforce timeout and max_body_bytes.
+  - Use requests to GET and write evidence to mounted evidence path.
+  - Return structured JSON result with evidence_ref.
+  - Log to stdout so controller can stream logs.
+
+Device passthrough docs and example
+- README: document how to pass a USB device into container:
+  - Example docker run flag: --device=/dev/bus/usb/001/004 (give example only)
+  - In docker-compose.dev.yaml include commented example lines and clear warnings about host privileges.
+  - Recommend using a dedicated host with controlled access for Wi-Fi captures, and use a USB adapter that you can pass through.
+  - Emphasize operator must run host commands to set monitor mode if required and that controller will not escalate host privileges.
+
+Pause / approve flow
+- Controller should create an approval event and halt progression when required.
+- Provide simple API endpoints for pause/resume and approve that UI or CLI can call.
+- Tests must simulate an approval flow: controller pauses, test sends approval, controller continues and completes run.
+
+NDJSON streaming semantics
+- NDJSON file is append-only.
+- Controller writes records as events happen:
+  - plan record at start
+  - phase_start records
+  - tool-output records as returned
+  - approval events
+  - final-report
+- UI reads NDJSON incrementally for replay or when websocket disconnected.
+
+Signing and manifest
+- controller/signing.py provides sign and verify using Ed25519.
+- scripts/generate_ed25519_key.py creates keypair and README documents secure storage.
+- Manifest includes run_id, role_digest, image digests, LLM metadata placeholder, registry snapshot, authorization fingerprint, and signature.
+
+Tests
+- Use pytest.
+- test_pause_resume_approve: simulate run where planner requests approval before phase 2. Ensure controller emits approval_required, test calls controller.approve API, controller continues and finishes.
+- Tests must be hermetic, use MockLLM, and sandbox synthesis tests must run with docker run --network none or monkeypatch to simulate sandbox.
+- Avoid real network calls. Use requests-mock or monkeypatch.
+
+Makefile
+- build: docker compose build
+- up: docker compose up -d
+- dry-run: python -m controller.main dry-run ROLE=... TARGET=... AUTH=... OUT=...
+- run: python -m controller.main run ROLE=... TARGET=... AUTH=... OUT=...
+- pause/resume/approve: call controller HTTP API endpoints
+- test: pytest
+- lint: ruff
+- clean: remove results and built images
+
+Prompt engineering for Planner LLM (update)
+- Planner prompt must include:
+  - role description
+  - explicit allowed_tools and forbidden_tools
+  - target, scope, run_options and whether human approval is required for certain phases
+  - explicit JSON schema for the plan including fields:
+    - run_id
+    - phases: [{phase_id, name, intent, allowed_tools, actions:[{tool, params}], requires_approval: bool, estimated_runtime_seconds}]
+  - an example of a valid plan
+  - strict instruction: return only JSON and nothing else. If cannot produce plan, return an error object matching schema.
+
+Production hardening TODOs (clearly marked)
+- Replace MockLLM with real provider adapters and secure keys.
+- Store signing keys in KMS or HSM.
+- Harden container seccomp and AppArmor profiles.
+- Implement syscall monitoring sidecar for tool-runner containment.
+- Implement RBAC for who can approve destructive runs.
+- Implement rate limiting and politeness policies for web crawls.
+
+Developer notes and ethics reminder
+- This system can be abused. The code must explicitly require and validate signed authorizations. Include the legal/ethical note in README and block runs without valid authorization.
+- Keep humans in the loop for destructive actions in production.
+
+Deliverables
+Implement the repository files above as a minimal prototype satisfying the acceptance criteria and tests. Mark all safety-critical code paths with TODO and explicit comments. Keep code readable, documented, and easy to extend.
+
+
+
+
+notes:
+
+use langchain if relevant.
+
+ for the tools for the mcp server search for the best
+  ones. like for search i can think of https://mcpmarket.com/server/gpt-researcher-1 but you
+  search whats the best to use (more popular, more github stars) I mean before implementing it check internet for up to date
+  mcp servers,
+
+  maybe consider this https://mcpmarket.com/server/playwright-5 
+DesktopCommanderMCP
+
+
+
+  https://mcpmarket.com/server/misp-1
+
+
+and for inspiration there are typescripts for creating mcp servers:
+  and this https://mcpmarket.com/server/fastmcp
+  
+

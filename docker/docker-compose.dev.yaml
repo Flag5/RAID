@@ -1,0 +1,248 @@
+# RAID Development Environment Docker Compose
+# This configuration sets up the complete RAID framework for development
+
+version: '3.8'
+
+services:
+  # Main Controller Service
+  controller:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.controller
+    container_name: raid-controller
+    volumes:
+      # Code volumes for development
+      - ../controller:/app/controller
+      - ../mcp:/app/mcp
+      - ../ui:/app/ui
+      # Data volumes
+      - ../results:/app/results
+      - ../evidence:/app/evidence
+      - ../auth:/app/auth:ro
+      - ../roles:/app/roles:ro
+      - ../secrets:/app/secrets:ro
+      # Runtime volumes
+      - raid-tool-registry:/app/tool-registry
+    environment:
+      - PYTHONPATH=/app
+      - RAID_ENV=development
+      - RAID_LOG_LEVEL=DEBUG
+      - MCP_SERVER_URL=http://mcp-server:8000
+    depends_on:
+      - mcp-server
+    networks:
+      - raid-internal
+      - raid-external
+    ports:
+      - "8080:8080"  # Controller API
+    restart: unless-stopped
+
+  # MCP Server Service
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    container_name: raid-mcp-server
+    volumes:
+      # Code volumes for development
+      - ../mcp:/app/mcp
+      # Data volumes
+      - raid-tool-registry:/app/tool-registry
+      - ../secrets:/app/secrets:ro
+    environment:
+      - PYTHONPATH=/app
+      - RAID_ENV=development
+      - RAID_LOG_LEVEL=DEBUG
+      - FASTMCP_HOST=0.0.0.0
+      - FASTMCP_PORT=8000
+    networks:
+      - raid-internal
+    ports:
+      - "8000:8000"  # MCP Server API
+    restart: unless-stopped
+
+  # HTTP Fetcher Tool Runner
+  tool-runner-http:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tool-http-fetcher
+    container_name: raid-tool-http-fetcher
+    volumes:
+      - ../evidence:/app/evidence
+      - ../tool-runners/http_fetcher:/app/tool
+    environment:
+      - TOOL_NAME=http-fetcher
+      - TOOL_VERSION=1.0.0
+      - EVIDENCE_PATH=/app/evidence
+    networks:
+      - raid-tools
+    restart: unless-stopped
+    # Security: No external network access by default
+    # Network access controlled by executor
+
+  # Playwright Browser Tool Runner
+  tool-runner-playwright:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tool-playwright
+    container_name: raid-tool-playwright
+    volumes:
+      - ../evidence:/app/evidence
+      - ../tool-runners/playwright:/app/tool
+    environment:
+      - TOOL_NAME=playwright-browser
+      - TOOL_VERSION=1.0.0
+      - EVIDENCE_PATH=/app/evidence
+      # Playwright specific
+      - PLAYWRIGHT_BROWSERS_PATH=/app/browsers
+    networks:
+      - raid-tools
+    restart: unless-stopped
+    # Browser automation requires additional capabilities
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandbox
+    shm_size: 2gb  # Shared memory for browser
+
+  # Web UI Service
+  web-ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web-ui
+    container_name: raid-web-ui
+    volumes:
+      - ../ui:/app/ui
+      - ../results:/app/results:ro
+    environment:
+      - PYTHONPATH=/app
+      - RAID_ENV=development
+      - WEB_UI_HOST=0.0.0.0
+      - WEB_UI_PORT=3000
+      - CONTROLLER_API_URL=http://controller:8080
+    depends_on:
+      - controller
+    networks:
+      - raid-internal
+    ports:
+      - "3000:3000"  # Web UI
+    restart: unless-stopped
+
+  # Redis for caching and session management (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: raid-redis
+    volumes:
+      - raid-redis-data:/data
+    networks:
+      - raid-internal
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+networks:
+  # Internal network for service communication
+  raid-internal:
+    driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  # External network for internet access (controlled)
+  raid-external:
+    driver: bridge
+    internal: false
+
+  # Isolated network for tool runners
+  raid-tools:
+    driver: bridge
+    internal: true  # No internet access by default
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  # Persistent storage for tool registry
+  raid-tool-registry:
+    driver: local
+
+  # Redis data persistence
+  raid-redis-data:
+    driver: local
+
+# Development overrides and device passthrough examples
+# Uncomment and modify as needed for hardware tool support
+
+# Example: USB Wi-Fi Adapter Passthrough
+# WARNING: This requires host-level privileges and proper device setup
+# Only use on dedicated assessment hosts with controlled access
+
+# For USB Wi-Fi adapter (example device path):
+# tool-runner-wifi:
+#   build:
+#     context: ..
+#     dockerfile: docker/Dockerfile.tool-wifi
+#   container_name: raid-tool-wifi
+#   volumes:
+#     - ../evidence:/app/evidence
+#     - ../tool-runners/wifi:/app/tool
+#   devices:
+#     # USB Wi-Fi adapter device passthrough
+#     # IMPORTANT: Replace with your actual device path
+#     # Use 'lsusb' to find your Wi-Fi adapter
+#     # Use 'ls -la /dev/bus/usb/' to find device path
+#     - "/dev/bus/usb/001/004:/dev/bus/usb/001/004"
+#   environment:
+#     - TOOL_NAME=wifi-scanner
+#     - TOOL_VERSION=1.0.0
+#     - EVIDENCE_PATH=/app/evidence
+#   networks:
+#     - raid-tools
+#   restart: unless-stopped
+#   # Additional capabilities for network interface manipulation
+#   cap_add:
+#     - NET_ADMIN
+#     - NET_RAW
+#   # SECURITY WARNING: These capabilities provide significant host access
+#   # Only use on dedicated, isolated assessment systems
+
+# Example: SDR Hardware Passthrough
+# tool-runner-sdr:
+#   build:
+#     context: ..
+#     dockerfile: docker/Dockerfile.tool-sdr
+#   devices:
+#     - "/dev/bus/usb/001/005:/dev/bus/usb/001/005"  # RTL-SDR device
+#   cap_add:
+#     - SYS_RAWIO
+
+# Example: GPU Passthrough for intensive processing
+# tool-runner-gpu:
+#   build:
+#     context: ..
+#     dockerfile: docker/Dockerfile.tool-gpu
+#   deploy:
+#     resources:
+#       reservations:
+#         devices:
+#           - driver: nvidia
+#             count: 1
+#             capabilities: [gpu]
+
+# SECURITY NOTES:
+# 1. Device passthrough requires careful host configuration
+# 2. Never run containers with --privileged in production
+# 3. Use specific device paths, not broad device access
+# 4. Monitor container capabilities and resource usage
+# 5. Implement network segmentation for device containers
+# 6. Regular security audits of device access logs
+
+# HOST PREPARATION STEPS:
+# 1. Identify device: lsusb, ls /dev/
+# 2. Check permissions: ls -la /dev/bus/usb/
+# 3. Add user to required groups: dialout, plugdev
+# 4. Configure udev rules if needed
+# 5. Test device access before container deployment
+# 6. Document device setup in deployment notes
+
+# EXAMPLE UDEV RULE for Wi-Fi adapter:
+# /etc/udev/rules.d/99-raid-wifi.rules
+# SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="8812", MODE="0666"
